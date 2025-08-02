@@ -1,0 +1,16 @@
+pandas
+numpy
+scikit-learn 
+xgboost
+mlflow 
+fastapi
+uvicorn
+streamlit
+pydantic
+plotly
+shapely
+pyproj
+geopandas
+ruff
+black
+pre-commit
