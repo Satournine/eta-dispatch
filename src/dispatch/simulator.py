@@ -11,8 +11,18 @@ model_path = Path("models/xgb_eta_model.json")
 xgb_model = xgb.XGBRegressor()
 xgb_model.load_model(model_path)
 distance_df = pd.read_parquet("data/geo/zone_distance_matrix.parquet")
-speed_df = pd.read_parquet("data/processed/features_yellow_tripdata_2025-06.parquet")
+import requests
 
+speed_file_path = Path("data/processed/features_yellow_tripdata_2025-06.parquet")
+if not speed_file_path.exists():
+    print("Downloading speed data from Hugging Face...")
+    url = "https://huggingface.co/datasets/Satournine/taxi_trip_data/resolve/main/features_yellow_tripdata_2025-06.parquet"
+    response = requests.get(url)
+    speed_file_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(speed_file_path, "wb") as f:
+        f.write(response.content)
+
+speed_df = pd.read_parquet(speed_file_path)
 @dataclass
 class Order:
     order_id: int

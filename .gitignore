@@ -12,7 +12,6 @@ data/processed/
 
 # Keep required processed files
 !data/geo/zone_distance_matrix.parquet
-!data/processed/features_yellow_tripdata_2025-06.parquet
 !data/processed/zone_coords.csv
 
 # Checkpoints
@@ -23,3 +22,5 @@ data/processed/
 __pycache__/
 *.pyc
 *.json
+
+.DS_Store
