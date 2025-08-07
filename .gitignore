@@ -2,13 +2,18 @@ venv/
 
 # Model files
 models/
-*.json
+!models/xgb_eta_model.json
 *.pkl
 
 # Data files
 data/raw/
-data/processed/
 data/geo/
+data/processed/
+
+# Keep required processed files
+!data/geo/zone_distance_matrix.parquet
+!data/processed/features_yellow_tripdata_2025-06.parquet
+!data/processed/zone_coords.csv
 
 # Checkpoints
 *.parquet
@@ -17,3 +22,4 @@ data/geo/
 # Python cache
 __pycache__/
 *.pyc
+*.json
