@@ -7,13 +7,11 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 
-
 model_path = Path("models/xgb_eta_model.json")
 xgb_model = xgb.XGBRegressor()
 xgb_model.load_model(model_path)
 distance_df = pd.read_parquet("data/geo/zone_distance_matrix.parquet")
 speed_df = pd.read_parquet("data/processed/features_yellow_tripdata_2025-06.parquet")
-
 
 @dataclass
 class Order:
@@ -27,6 +25,7 @@ class Courier:
     courier_id: int
     current_zone: int
     available_at: float
+    total_work_time: float = 0.0
 
 class DispatchSimulator:
     def __init__(self, couriers: List[Courier], orders: List[Order], eta_predictor):
@@ -34,14 +33,16 @@ class DispatchSimulator:
         self.orders = orders
         self.eta_predictor = eta_predictor
         self.assignments = []
-    
+        self.eta_log = []
+        self.queued_orders = []
+
     def run(self):
         for order in self.orders:
             available = [c for c in self.couriers if c.available_at <= order.timestamp]
             if not available:
+                self.queued_orders.append(order)
                 continue
-                #need queue stuff here
-            
+
             best_eta = float("inf")
             best_courier = None
 
@@ -53,17 +54,37 @@ class DispatchSimulator:
                 if total_eta < best_eta:
                     best_eta = total_eta
                     best_courier = courier
-            
 
             if best_courier:
+                best_courier.total_work_time += best_eta
                 best_courier.available_at = order.timestamp + best_eta
                 best_courier.current_zone = order.dropoff_zone
                 self.assignments.append((order.order_id, best_courier.courier_id, best_eta))
+                self.eta_log.append(best_eta)
 
+    def report_metrics(self):
+        if not self.assignments:
+            print("No orders were assigned.")
+            return
+
+        etas = np.array(self.eta_log)
+        total_sim_time = self.orders[-1].timestamp if self.orders else 1.0
+        avg_eta = np.mean(etas)
+        p50 = np.percentile(etas, 50)
+        p90 = np.percentile(etas, 90)
+        utilization = [c.total_work_time / total_sim_time for c in self.couriers]
+
+        print("\n--- Simulation Metrics ---")
+        print(f"Avg ETA: {avg_eta:.2f} sec")
+        print(f"P50 ETA: {p50:.2f} sec")
+        print(f"P90 ETA: {p90:.2f} sec")
+        print(f"Courier Utilization:")
+        for c, u in zip(self.couriers, utilization):
+            print(f"  Courier {c.courier_id}: {u*100:.1f}%")
+        queued_ratio = len(self.queued_orders) / len(self.orders)
+        print(f"Queued Orders: {len(self.queued_orders)} ({queued_ratio*100:.1f}%)")
 
 distance_lookup = distance_df.set_index(["PULocationID", "DOLocationID"])["great_circle_km"].to_dict()
-
-# We aggregate the speed dataframe by zone and hour to get historical_speed_kmh
 speed_lookup = (
     speed_df.groupby(["PULocationID", "DOLocationID", "pickup_hour"])["historical_speed_kmh"]
     .median()
@@ -73,15 +94,12 @@ speed_lookup = (
 def predict_eta(order, current_time, courier_zone):
     pu = order.pickup_zone
     do = order.dropoff_zone
-
-    # Assume simulation starts at 2025-06-01
     dt = datetime(2025, 6, 1) + timedelta(seconds=current_time)
     hour = dt.hour
     weekday = dt.weekday()
     is_weekend = weekday >= 5
     month = dt.month
-
-    distance_km = distance_lookup.get((pu, do), 5.0)  
+    distance_km = distance_lookup.get((pu, do), 5.0)
     historical_speed = speed_lookup.get((pu, do, hour), 20.0)
 
     features = pd.DataFrame([{
@@ -92,19 +110,15 @@ def predict_eta(order, current_time, courier_zone):
         "pickup_month": month,
         "historical_speed_kmh": historical_speed,
     }])
-    
+
     log_eta_pred = xgb_model.predict(features)[0]
     eta = np.expm1(log_eta_pred)
     return eta
 
 def initialize_couriers(n: int, zone_ids: List[int]) -> List[Courier]:
-    couriers = []
-    for i in range(n):
-        starting_zone = random.choice(zone_ids)
-        couriers.append(Courier(courier_id=i, current_zone=starting_zone, available_at=0.0))
-    return couriers
+    return [Courier(courier_id=i, current_zone=random.choice(zone_ids), available_at=0.0) for i in range(n)]
 
-def generate_fake_orders(n:int, zone_ids: List[int], start_time=0.0, interval=60.0) -> List[Order]:
+def generate_fake_orders(n: int, zone_ids: List[int], start_time=0.0, interval=60.0) -> List[Order]:
     orders = []
     time = start_time
     for i in range(n):
@@ -117,9 +131,13 @@ def generate_fake_orders(n:int, zone_ids: List[int], start_time=0.0, interval=60
     return orders
 
 if __name__ == "__main__":
+    NUM_COURIERS = 2
+    NUM_ORDERS = 10
+    INTERVAL = 10.0
+
     zone_ids = list(range(1, 264))
-    couriers = initialize_couriers(n=5, zone_ids=zone_ids)
-    orders = generate_fake_orders(n=10, zone_ids=zone_ids, interval=30.0)
+    couriers = initialize_couriers(NUM_COURIERS, zone_ids)
+    orders = generate_fake_orders(NUM_ORDERS, zone_ids, interval=INTERVAL)
 
     sim = DispatchSimulator(couriers, orders, predict_eta)
     sim.run()
@@ -127,3 +145,5 @@ if __name__ == "__main__":
     print("\nAssignments:")
     for a in sim.assignments:
         print(f"Order {a[0]} assigned to Courier {a[1]} with total ETA {a[2]:.1f} sec")
+
+    sim.report_metrics()
