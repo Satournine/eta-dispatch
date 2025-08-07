@@ -68,21 +68,23 @@ class DispatchSimulator:
             return
 
         etas = np.array(self.eta_log)
-        total_sim_time = self.orders[-1].timestamp if self.orders else 1.0
+        end_times = [c.available_at for c in self.couriers if c.available_at > 0]
+        total_sim_time = max(end_times) if end_times else 1.0
         avg_eta = np.mean(etas)
         p50 = np.percentile(etas, 50)
         p90 = np.percentile(etas, 90)
         utilization = [c.total_work_time / total_sim_time for c in self.couriers]
+        queued_orders = len(self.queued_orders)
+        queued_ratio = queued_orders / len(self.orders)
 
-        print("\n--- Simulation Metrics ---")
-        print(f"Avg ETA: {avg_eta:.2f} sec")
-        print(f"P50 ETA: {p50:.2f} sec")
-        print(f"P90 ETA: {p90:.2f} sec")
-        print(f"Courier Utilization:")
-        for c, u in zip(self.couriers, utilization):
-            print(f"  Courier {c.courier_id}: {u*100:.1f}%")
-        queued_ratio = len(self.queued_orders) / len(self.orders)
-        print(f"Queued Orders: {len(self.queued_orders)} ({queued_ratio*100:.1f}%)")
+        return{
+            "avg_eta": avg_eta,
+            "p50": p50,
+            "p90": p90,
+            "utilization": utilization,
+            "queued_orders": len(self.queued_orders),
+            "queued_ratio": queued_ratio
+        }
 
 distance_lookup = distance_df.set_index(["PULocationID", "DOLocationID"])["great_circle_km"].to_dict()
 speed_lookup = (
